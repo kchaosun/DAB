@@ -242,3 +242,116 @@ If you find our project useful, we hope you can star our repo and cite our paper
 
 
 
+
+## 🧪 Reproducible Experiment Framework
+
+We provide a standardized pipeline for benchmarking multi-image hallucination mitigation methods **without re-implementing core decoding algorithms**.
+
+### Directory Layout
+
+```text
+experiments/
+  run_mihbench.py
+  run_general_benchmarks.py
+  batch_run.py
+datasets/
+  mihbench_loader.py
+  mmiu_loader.py
+  muirbench_loader.py
+  mirb_loader.py
+evaluation/
+  mihbench_evaluator.py
+  general_evaluator.py
+methods/
+  method_registry.py
+utils/
+  image_utils.py
+  result_logger.py
+  parsing.py
+  seed.py
+scripts/
+  run_baseline.sh
+  run_dab.sh
+  run_fdacd.sh
+  collect_results.sh
+outputs/
+```
+
+### Step 1: Repository Analysis (current implementation)
+
+- **DAB implementation**:
+  - Qwen2.5-VL attention reallocation logic in `Qwen2.5-VL/modeling_qwen2_5_vl.py` (`reallocation_img_attn_ratio_avg`, and forward kwargs `img_str_idx`, `alpha`, `base_ratio`).
+- **FDACD implementation**:
+  - Decoding loop in `fdacd/fdacd_generate.py`.
+  - Cross-image attention masking in `fdacd/isolation_mask.py` and integrated in Qwen attention forward (`isolated_mode`, `image_token_ranges`).
+- **Generation entry points**:
+  - Baseline and DAB style generation in `Qwen2.5-VL/qwen2.5vl_eval.py` via `model.generate(...)`.
+  - FDACD via `fdacd_generate(...)`.
+- **Existing evaluation**:
+  - Legacy metric script: `eval.py`.
+  - Model-specific benchmark scripts under model folders.
+- **Multi-image input processing**:
+  - Chat-template + `process_vision_info` in `Qwen2.5-VL/qwen2.5vl_eval.py`.
+  - Image token span metadata extracted from `input_ids` (`img_str_idx`).
+
+### Unified Method Interface
+
+Use `methods/method_registry.py`:
+
+- `method="baseline"` → calls `model.generate(...)`.
+- `method="dab"` → calls existing DAB path in `model.generate(...)` with `img_str_idx`, `alpha`, `base_ratio`.
+- `method="fdacd"` → calls existing `fdacd.fdacd_generate(...)`.
+
+### Run MIHBench
+
+```bash
+python experiments/run_mihbench.py \
+  --model qwen25vl \
+  --model-path /path/to/Qwen2.5-VL \
+  --method fdacd \
+  --task existence \
+  --dataset . \
+  --image-root /path/to/images \
+  --output outputs/qwen_fdacd_exist.jsonl
+```
+
+Supported MIHBench tasks:
+- `existence`
+- `count`
+- `identity`
+
+Each prediction row stores question, images, raw model output, parsed yes/no label, and ground truth.
+
+### Batch Runs
+
+```bash
+python experiments/batch_run.py \
+  --models qwen25vl=/path/to/Qwen2.5-VL \
+  --methods baseline dab fdacd \
+  --tasks existence count identity \
+  --dataset . \
+  --image-root /path/to/images \
+  --output-dir outputs
+```
+
+### Collect Results
+
+```bash
+bash scripts/collect_results.sh outputs
+```
+
+This creates:
+- `outputs/results.csv`
+- `outputs/results.md`
+
+`results.md` includes a paper-style table:
+
+| Model | Method | Existence | Count | Identity |
+|---|---:|---:|---:|---:|
+
+### Reproducibility Features
+
+- Fixed seeds via `utils/seed.py`.
+- Skip finished samples using append-only JSONL + ID dedup (`utils/result_logger.py`).
+- Multi-GPU compatibility through `--device-map auto` and CLI-friendly batch launch.
+- Per-sample prediction logging for auditability.

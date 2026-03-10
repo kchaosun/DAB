@@ -718,6 +718,8 @@ class Qwen2_5_VLAttention(nn.Module):
         img_str_idx: Optional[List] = None,
         alpha: Optional[float] = None,
         base_ratio: Optional[float] = None,
+        isolated_mode: bool = False,
+        image_token_ranges: Optional[List[Tuple[int, int]]] = None,
         ###OURS###
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         # print('yes')
@@ -750,10 +752,15 @@ class Qwen2_5_VLAttention(nn.Module):
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
 
+        if isolated_mode and image_token_ranges:
+            from fdacd.isolation_mask import apply_cross_image_attention_mask
+
+            attn_weights = apply_cross_image_attention_mask(attn_weights, image_token_ranges)
+
         # Fix precision issues in Qwen2-VL float16 inference
         # Replace inf values with zeros in attention weights to prevent NaN propagation
         if query_states.dtype == torch.float16:
-            attn_weights = torch.where(torch.isinf(attn_weights), torch.zeros_like(attn_weights), attn_weights)
+            attn_weights = torch.where(torch.isposinf(attn_weights), torch.zeros_like(attn_weights), attn_weights)
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
@@ -1072,6 +1079,8 @@ class Qwen2_5_VLDecoderLayer(nn.Module):
         img_str_idx: Optional[List] = None,
         alpha: Optional[float] = None,
         base_ratio: Optional[float] = None,
+        isolated_mode: bool = False,
+        image_token_ranges: Optional[List[Tuple[int, int]]] = None,
         ###OURS###
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
@@ -1115,6 +1124,8 @@ class Qwen2_5_VLDecoderLayer(nn.Module):
             img_str_idx=img_str_idx,
             alpha=alpha,
             base_ratio=base_ratio,
+            isolated_mode=isolated_mode,
+            image_token_ranges=image_token_ranges,
             ###OURS###
         )
         hidden_states = residual + hidden_states
@@ -1180,6 +1191,8 @@ class Qwen2_5_VLModel(Qwen2_5_VLPreTrainedModel):
         img_str_idx: Optional[List] = None,
         alpha: Optional[float] = None,
         base_ratio: Optional[float] = None,
+        isolated_mode: bool = False,
+        image_token_ranges: Optional[List[Tuple[int, int]]] = None,
         ###OURS###
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -1263,6 +1276,8 @@ class Qwen2_5_VLModel(Qwen2_5_VLPreTrainedModel):
                     img_str_idx=img_str_idx,
                     alpha=alpha,
                     base_ratio=base_ratio,
+                    isolated_mode=isolated_mode,
+                    image_token_ranges=image_token_ranges,
                     ###OURS###
                 )
 
@@ -1795,6 +1810,8 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         img_str_idx: Optional[List] = None,
         alpha: Optional[float] = None,
         base_ratio: Optional[float] = None,
+        isolated_mode: bool = False,
+        image_token_ranges: Optional[List[Tuple[int, int]]] = None,
         ###OURS###
     ) -> Union[Tuple, Qwen2_5_VLCausalLMOutputWithPast]:
         r"""
@@ -1929,6 +1946,8 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
             img_str_idx=img_str_idx,
             alpha=alpha,
             base_ratio=base_ratio,
+            isolated_mode=isolated_mode,
+            image_token_ranges=image_token_ranges,
             ###OURS###
         )
 
